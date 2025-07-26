@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import mongoose from 'mongoose';
 import connectDB from '@/lib/mongodb';
 import Candidate from '@/models/Candidate';
 import Voter from '@/models/Voter';
@@ -7,6 +8,7 @@ import { getUserFromRequest, hasRole } from '@/lib/auth';
 // POST: Cast vote
 export async function POST(request) {
   try {
+    console.log('Vote request started');
     await connectDB();
 
     // Check authentication
@@ -44,11 +46,13 @@ export async function POST(request) {
       );
     }
 
-    // Get or create voter record
-    let voter = await Voter.findOne({ userId: user.id });
+    // Convert string ID to ObjectId and get or create voter record
+    const userId = new mongoose.Types.ObjectId(user.id);
+    
+    let voter = await Voter.findOne({ userId });
     if (!voter) {
       voter = new Voter({
-        userId: user.id,
+        userId,
         hasVoted: false
       });
     }
@@ -61,39 +65,35 @@ export async function POST(request) {
       );
     }
 
-    // Use transaction to ensure atomicity
-    const session = await connectDB().startSession();
-    
     try {
-      await session.withTransaction(async () => {
-        // Update voter record
-        voter.hasVoted = true;
-        voter.votedFor = candidateId;
-        voter.votedAt = new Date();
-        await voter.save({ session });
+      // Update voter record without transaction since MongoDB 5.0+ handles this atomically
+      voter.hasVoted = true;
+      voter.votedFor = new mongoose.Types.ObjectId(candidateId);
+      voter.votedAt = new Date();
+      await voter.save();
 
-        // Increment candidate vote count
-        await Candidate.findByIdAndUpdate(
-          candidateId,
-          { $inc: { voteCount: 1 } },
-          { session }
-        );
-      });
+      // Increment candidate vote count
+      await Candidate.findByIdAndUpdate(
+        candidateId,
+        { $inc: { voteCount: 1 } }
+      );
 
       return NextResponse.json({
         message: 'Vote cast successfully',
         candidate: candidate.name
       });
-
-    } finally {
-      await session.endSession();
+    } catch (error) {
+      console.error('Vote operation error:', error);
+      return NextResponse.json(
+        { error: `Vote operation failed: ${error.message}` },
+        { status: 500 }
+      );
     }
-
   } catch (error) {
-    console.error('Vote error:', error);
+    console.error('Vote request error:', error);
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: `Internal server error: ${error.message}` },
       { status: 500 }
     );
   }
-} 
+}

@@ -91,9 +91,16 @@ export default function VoterDashboard() {
   const handleVote = async (candidateId) => {
     setActionLoading(true);
     setError(null);
+    setShowModal(false);
 
     try {
       const token = localStorage.getItem('token');
+      if (!token) {
+        setError('Authentication required. Please log in again.');
+        router.push('/');
+        return;
+      }
+      
       const response = await fetch('/api/vote', {
         method: 'POST',
         headers: {
@@ -104,13 +111,16 @@ export default function VoterDashboard() {
       });
 
       const data = await response.json();
+      console.log('Vote response:', data);
 
       if (!response.ok) {
         throw new Error(data.error || 'Failed to cast vote');
       }
 
-      setModalMessage('Vote cast successfully!');
+      setModalMessage(data.message || 'Vote cast successfully!');
       setModalType('success');
+      setShowModal(true);
+      await fetchData(); // Refresh the data immediately
       setShowModal(true);
       
       // Refresh data
