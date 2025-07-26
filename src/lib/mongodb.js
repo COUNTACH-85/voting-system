@@ -24,7 +24,9 @@ async function connectDB() {
       maxPoolSize: 10,
       serverSelectionTimeoutMS: 5000,
       socketTimeoutMS: 45000,
-      family: 4
+      family: 4,
+      retryWrites: true,
+      w: 'majority'
     };
 
     cached.promise = mongoose.connect(MONGODB_URI, opts).then((mongoose) => {
