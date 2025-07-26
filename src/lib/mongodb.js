@@ -22,16 +22,24 @@ async function connectDB() {
     const opts = {
       bufferCommands: false,
       maxPoolSize: 10,
-      serverSelectionTimeoutMS: 5000,
+      serverSelectionTimeoutMS: 10000, // Increased timeout
       socketTimeoutMS: 45000,
-      family: 4
+      connectTimeoutMS: 10000,
+      family: 4,
+      retryWrites: true,
+      w: 'majority'
     };
 
     cached.promise = mongoose.connect(MONGODB_URI, opts).then((mongoose) => {
-      console.log('✅ Connected to MongoDB successfully');
+      console.log('✅ Connected to MongoDB Atlas successfully');
       return mongoose;
     }).catch((error) => {
-      console.error('❌ MongoDB connection error:', error.message);
+      console.error('❌ MongoDB Atlas connection error:', error.message);
+      console.error('Please check:');
+      console.error('1. Your IP address is whitelisted in MongoDB Atlas');
+      console.error('2. Your MongoDB Atlas credentials are correct');
+      console.error('3. Your network allows connections to MongoDB Atlas');
+      cached.promise = null; // Reset promise on error
       throw error;
     });
   }

@@ -16,6 +16,12 @@ const candidateSchema = new mongoose.Schema({
     default: 'https://via.placeholder.com/150x150/3b82f6/ffffff?text=Candidate', 
     trim: true 
   },
+  campaignMessage: {
+    type: String,
+    default: '',
+    trim: true,
+    maxlength: [1000, 'Campaign message cannot exceed 1000 characters']
+  },
   voteCount: { 
     type: Number, 
     default: 0, 

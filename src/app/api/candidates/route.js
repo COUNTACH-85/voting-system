@@ -73,16 +73,22 @@ export async function POST(request) {
       }, { status: 201 });
     }
 
-    // If candidate, allow self-application (must provide userId matching their own)
+    // If candidate, allow self-application (use userId from JWT token)
     if (hasRole(user, 'candidate')) {
-      if (!userId || userId !== user.id) {
-        return NextResponse.json(
-          { error: 'Invalid userId for candidate application' },
-          { status: 400 }
-        );
-      }
+      console.log('Candidate application debug:', {
+        providedUserId: userId,
+        userIdFromToken: user.id,
+        userIdType: typeof user.id,
+        providedUserIdType: typeof userId,
+        userObject: user
+      });
+      
+      // Use the user ID from the JWT token
+      const actualUserId = user.id;
+      console.log('Using actualUserId from JWT:', actualUserId);
+      
       // Prevent duplicate candidate profile for this user
-      const existingCandidate = await Candidate.findOne({ userId });
+      const existingCandidate = await Candidate.findOne({ userId: actualUserId });
       if (existingCandidate) {
         return NextResponse.json(
           { error: 'You have already applied for candidature' },
@@ -94,7 +100,7 @@ export async function POST(request) {
         party,
         imageUrl: imageUrl || 'https://via.placeholder.com/150x150/3b82f6/ffffff?text=Candidate',
         voteCount: 0,
-        userId
+        userId: actualUserId
       });
       await candidate.save();
       return NextResponse.json({

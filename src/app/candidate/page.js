@@ -15,8 +15,18 @@ export default function CandidateDashboard() {
   const [applyForm, setApplyForm] = useState({ name: '', party: '', imageUrl: '' });
   const [applyLoading, setApplyLoading] = useState(false);
   const [applyError, setApplyError] = useState(null);
+  const [showEditProfile, setShowEditProfile] = useState(false);
+  const [editForm, setEditForm] = useState({ party: '', campaignMessage: '' });
+  const [editLoading, setEditLoading] = useState(false);
+  const [editError, setEditError] = useState(null);
 
   const router = useRouter();
+
+  // Helper function to get user ID reliably
+  const getUserId = (userObj) => {
+    // Try multiple ways to get the user ID
+    return userObj?.id || userObj?._id || userObj?.userId;
+  };
 
   useEffect(() => {
     // Check authentication
@@ -30,6 +40,11 @@ export default function CandidateDashboard() {
 
     try {
       const user = JSON.parse(userData);
+      console.log('Parsed user from localStorage:', user);
+      console.log('User keys:', Object.keys(user));
+      console.log('User id:', user.id);
+      console.log('User _id:', user._id);
+      
       if (user.role !== 'candidate') {
         router.push('/');
         return;
@@ -52,11 +67,17 @@ export default function CandidateDashboard() {
       const data = await response.json();
       setCandidates(data.candidates);
       // Find the candidate record for this user
-      const userCandidate = data.candidates.find(c => c.userId === (userObj?.id || user?.id));
+      const currentUserId = userObj?.id || userObj?._id || user?.id || user?._id;
+      console.log('Looking for candidate with userId:', currentUserId);
+      console.log('Available candidates:', data.candidates.map(c => ({ id: c._id, name: c.name, userId: c.userId })));
+      
+      const userCandidate = data.candidates.find(c => c.userId === currentUserId);
       if (userCandidate) {
+        console.log('Found user candidate:', userCandidate);
         setCandidate(userCandidate);
         setShowApplyForm(false);
       } else {
+        console.log('No candidate found for user, showing apply form');
         setShowApplyForm(true);
       }
     } catch (error) {
@@ -84,6 +105,15 @@ export default function CandidateDashboard() {
     setApplyError(null);
     try {
       const token = localStorage.getItem('token');
+      console.log('Submitting candidate application:', {
+        name: applyForm.name,
+        party: applyForm.party,
+        imageUrl: applyForm.imageUrl,
+        userId: user.id,
+        userIdType: typeof user.id,
+        userObject: user
+      });
+      
       const response = await fetch('/api/candidates', {
         method: 'POST',
         headers: {
@@ -94,7 +124,7 @@ export default function CandidateDashboard() {
           name: applyForm.name,
           party: applyForm.party,
           imageUrl: applyForm.imageUrl,
-          userId: user.id
+          userId: user.id || user._id
         })
       });
       const data = await response.json();
@@ -108,6 +138,55 @@ export default function CandidateDashboard() {
     } finally {
       setApplyLoading(false);
     }
+  };
+
+  const handleEditChange = (e) => {
+    const { name, value } = e.target;
+    setEditForm(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleEditSubmit = async (e) => {
+    e.preventDefault();
+    setEditLoading(true);
+    setEditError(null);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`/api/candidates/${candidate._id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          party: editForm.party,
+          campaignMessage: editForm.campaignMessage
+        })
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to update profile');
+      }
+      // Refresh candidate data
+      await fetchCandidateData(user);
+      setShowEditProfile(false);
+    } catch (error) {
+      setEditError(error.message);
+    } finally {
+      setEditLoading(false);
+    }
+  };
+
+  const startEditing = () => {
+    setEditForm({
+      party: candidate.party || '',
+      campaignMessage: candidate.campaignMessage || 'Thank you for your support! As a candidate representing ' + candidate.party + ', I am committed to serving our community with integrity and dedication. Every vote counts, and I appreciate your trust in me.'
+    });
+    setShowEditProfile(true);
+  };
+
+  const cancelEditing = () => {
+    setShowEditProfile(false);
+    setEditError(null);
   };
 
   if (loading) {
@@ -215,40 +294,199 @@ export default function CandidateDashboard() {
                 </div>
               </div>
             </div>
-            {/* All Candidates Table */}
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-8">
-              <h3 className="text-xl font-semibold text-gray-900 mb-4">All Candidates & Vote Counts</h3>
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead>
-                    <tr>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Party</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Votes</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {candidates.map((c) => (
-                      <tr key={c._id} className={c.userId === candidate.userId ? 'bg-blue-50' : ''}>
-                        <td className="px-4 py-2 font-medium text-gray-900">{c.name}</td>
-                        <td className="px-4 py-2 text-gray-700">{c.party}</td>
-                        <td className="px-4 py-2 text-blue-700 font-bold">{c.voteCount}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+            {/* Vote Statistics Overview */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+              <div className="bg-gradient-to-r from-blue-500 to-blue-600 rounded-lg p-6 text-white">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-blue-100 text-sm font-medium">Your Votes</p>
+                    <p className="text-3xl font-bold">{candidate.voteCount}</p>
+                  </div>
+                  <div className="w-12 h-12 bg-blue-400 rounded-full flex items-center justify-center">
+                    <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="bg-gradient-to-r from-green-500 to-green-600 rounded-lg p-6 text-white">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-green-100 text-sm font-medium">Total Votes Cast</p>
+                    <p className="text-3xl font-bold">{candidates.reduce((sum, c) => sum + c.voteCount, 0)}</p>
+                  </div>
+                  <div className="w-12 h-12 bg-green-400 rounded-full flex items-center justify-center">
+                    <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                    </svg>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="bg-gradient-to-r from-purple-500 to-purple-600 rounded-lg p-6 text-white">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-purple-100 text-sm font-medium">Your Ranking</p>
+                    <p className="text-3xl font-bold">
+                      #{candidates.sort((a, b) => b.voteCount - a.voteCount).findIndex(c => c.userId === candidate.userId) + 1}
+                    </p>
+                  </div>
+                  <div className="w-12 h-12 bg-purple-400 rounded-full flex items-center justify-center">
+                    <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                  </div>
+                </div>
               </div>
             </div>
-            {/* Campaign Message and Tips (existing code) */}
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-              <h3 className="text-xl font-semibold text-gray-900 mb-4">Campaign Message</h3>
-              <div className="bg-gray-50 rounded-lg p-4">
-                <p className="text-gray-700">
-                  Thank you for your support! As a candidate representing {candidate.party}, 
-                  I am committed to serving our community with integrity and dedication. 
-                  Every vote counts, and I appreciate your trust in me.
-                </p>
+
+            {/* All Candidates Leaderboard */}
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-8">
+              <h3 className="text-xl font-semibold text-gray-900 mb-6 flex items-center">
+                <svg className="w-6 h-6 text-yellow-500 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                  <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                </svg>
+                Candidate Leaderboard
+              </h3>
+              <div className="space-y-4">
+                {candidates
+                  .sort((a, b) => b.voteCount - a.voteCount)
+                  .map((c, index) => {
+                    const isCurrentUser = c.userId === candidate.userId;
+                    const getRankIcon = (rank) => {
+                      if (rank === 0) return "1st";
+                      if (rank === 1) return "2nd";
+                      if (rank === 2) return "3rd";
+                      return `#${rank + 1}`;
+                    };
+                    
+                    return (
+                      <div
+                        key={c._id}
+                        className={`flex items-center justify-between p-4 rounded-lg border-2 transition-all ${
+                          isCurrentUser 
+                            ? 'bg-blue-50 border-blue-200 shadow-md' 
+                            : 'bg-gray-50 border-gray-200 hover:bg-gray-100'
+                        }`}
+                      >
+                        <div className="flex items-center space-x-4">
+                          <div className="text-2xl font-bold text-gray-600 min-w-[3rem] text-center">
+                            {getRankIcon(index)}
+                          </div>
+                          <div className="flex items-center space-x-3">
+                            <img
+                              src={c.imageUrl}
+                              alt={c.name}
+                              className="w-12 h-12 rounded-full object-cover border-2 border-gray-300"
+                              onError={(e) => {
+                                e.target.src = 'https://via.placeholder.com/50x50/3b82f6/ffffff?text=C';
+                              }}
+                            />
+                            <div>
+                              <h4 className={`font-semibold ${isCurrentUser ? 'text-blue-900' : 'text-gray-900'}`}>
+                                {c.name} {isCurrentUser && <span className="text-blue-600">(You)</span>}
+                              </h4>
+                              <p className={`text-sm ${isCurrentUser ? 'text-blue-700' : 'text-gray-600'}`}>
+                                {c.party}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className={`text-2xl font-bold ${isCurrentUser ? 'text-blue-600' : 'text-gray-700'}`}>
+                            {c.voteCount}
+                          </div>
+                          <div className={`text-sm ${isCurrentUser ? 'text-blue-600' : 'text-gray-500'}`}>
+                            {c.voteCount === 1 ? 'vote' : 'votes'}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                }
               </div>
+            </div>
+            {/* Editable Profile Section */}
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-8">
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-xl font-semibold text-gray-900">Profile Settings</h3>
+                {!showEditProfile && (
+                  <button
+                    onClick={startEditing}
+                    className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors flex items-center space-x-2"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                    </svg>
+                    <span>Edit Profile</span>
+                  </button>
+                )}
+              </div>
+
+              {showEditProfile ? (
+                <form onSubmit={handleEditSubmit} className="space-y-6">
+                  <div>
+                    <label htmlFor="editParty" className="block text-sm font-medium text-gray-700 mb-2">Party Name</label>
+                    <input
+                      type="text"
+                      id="editParty"
+                      name="party"
+                      value={editForm.party}
+                      onChange={handleEditChange}
+                      required
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="Enter your party name"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="editCampaignMessage" className="block text-sm font-medium text-gray-700 mb-2">Campaign Message</label>
+                    <textarea
+                      id="editCampaignMessage"
+                      name="campaignMessage"
+                      value={editForm.campaignMessage}
+                      onChange={handleEditChange}
+                      rows={5}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+                      placeholder="Write your campaign message here..."
+                    />
+                  </div>
+                  {editError && <div className="text-red-600 text-sm">{editError}</div>}
+                  <div className="flex space-x-4">
+                    <button
+                      type="submit"
+                      disabled={editLoading}
+                      className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {editLoading ? 'Saving...' : 'Save Changes'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={cancelEditing}
+                      className="flex-1 bg-gray-300 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <div className="space-y-6">
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-600 mb-2">Party Name</h4>
+                    <p className="text-lg font-semibold text-gray-900">{candidate.party}</p>
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-600 mb-2">Campaign Message</h4>
+                    <div className="bg-gray-50 rounded-lg p-4">
+                      <p className="text-gray-700">
+                        {candidate.campaignMessage || 
+                          `Thank you for your support! As a candidate representing ${candidate.party}, I am committed to serving our community with integrity and dedication. Every vote counts, and I appreciate your trust in me.`
+                        }
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
             <div className="mt-8 bg-blue-50 border border-blue-200 rounded-lg p-6">
               <h3 className="text-lg font-semibold text-blue-900 mb-4">Campaign Tips</h3>
